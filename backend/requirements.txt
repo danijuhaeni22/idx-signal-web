@@ -1,5 +1,5 @@
 fastapi==0.115.6
 uvicorn[standard]==0.30.6
 yfinance==0.2.43
-pandas==2.1.4
-numpy==1.26.4
+pandas>=2.2.3,<3.0.0
+numpy>=2.1.0,<3.0.0
