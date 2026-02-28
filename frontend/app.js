@@ -1,7 +1,7 @@
 // === CONFIG ===
 // Jalankan backend lokal: http://127.0.0.1:8000
 // Deploy backend Render: ganti ke URL render kamu, contoh: https://idx-signal-api.onrender.com
-const API_BASE = localStorage.getItem("API_BASE") || "http://127.0.0.1:8000";
+const API_BASE = localStorage.getItem("API_BASE") || "https://idx-signal-web.onrender.com";
 
 const $ = (id) => document.getElementById(id);
 
