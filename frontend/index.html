@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>IDX Signal (Personal)</title>
+  <link rel="stylesheet" href="./style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@5.0.8/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">📈</div>
+      <div>
+        <div class="title">IDX Signal (Personal)</div>
+        <div class="sub">Breakout + Pullback MA20 • gaya “tren dulu”</div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <input id="tickerInput" placeholder="Contoh: BBRI" value="BBRI" />
+      <button id="btnLoad">Load</button>
+      <button id="btnWatch">⭐ Watch</button>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="card">
+      <h2>Market Regime (IHSG)</h2>
+      <div id="regime" class="regime"></div>
+      <div class="hint">Kalau NO TRADE DAY → fokus tunggu setup terbaik.</div>
+    </section>
+
+    <section class="card span2">
+      <h2>Chart</h2>
+      <div id="chart" class="chart"></div>
+      <div class="legend">
+        <span class="pill">MA20</span>
+        <span class="pill">MA50</span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Signal Card</h2>
+      <div id="signalCard" class="signal"></div>
+    </section>
+
+    <section class="card span3">
+      <div class="row">
+        <h2>Radar (Screener LQ45)</h2>
+        <button id="btnRefreshRadar" class="ghost">Refresh</button>
+      </div>
+      <div id="radar" class="radar"></div>
+    </section>
+
+    <section class="card span3">
+      <h2>Watchlist</h2>
+      <div id="watchlist" class="watch"></div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    Data OHLCV via Yahoo Finance ticker <code>.JK</code> (contoh <code>BBRI.JK</code>).
+  </footer>
+
+  <script src="./app.js"></script>
+</body>
+</html>
