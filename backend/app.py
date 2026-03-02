@@ -313,6 +313,27 @@ app.add_middleware(
 )
 
 
+@app.get("/")
+def root():
+    return {
+        "ok": True,
+        "name": APP_NAME,
+        "message": "API aktif. Gunakan endpoint di bawah untuk ambil data.",
+        "endpoints": {
+            "health": "/api/health",
+            "market_regime": "/api/market-regime",
+            "ohlcv_example": "/api/ohlcv?ticker=BBRI&days=260",
+            "signal_example": "/api/signal?ticker=BBRI&days=260",
+            "screener_example": "/api/screener?universe=LQ45&days=260",
+        },
+    }
+
+
+@app.get("/api")
+def api_index():
+    return root()
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True, "name": APP_NAME, "ts": _now_ts()}
