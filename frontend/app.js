@@ -1,7 +1,14 @@
 // === CONFIG ===
-// Jalankan backend lokal: http://127.0.0.1:8000
-// Deploy backend Render: ganti ke URL render kamu, contoh: https://idx-signal-api.onrender.com
-const API_BASE = localStorage.getItem("API_BASE") || "https://idx-signal-web.onrender.com";
+// Override API: ?api=https://service-kamu.onrender.com
+const API_PARAM = new URLSearchParams(window.location.search).get("api");
+const API_BASES = [
+  API_PARAM,
+  localStorage.getItem("API_BASE"),
+  window.location.origin,
+  "https://idx-signal-web.onrender.com",
+].filter(Boolean);
+
+let activeApiBase = API_BASES[0];
 
 const $ = (id) => document.getElementById(id);
 
@@ -11,6 +18,25 @@ const btnWatch = $("btnWatch");
 const btnRefreshRadar = $("btnRefreshRadar");
 
 let chart, candleSeries, ma20Series, ma50Series, volumeSeries;
+
+function addSeriesCompat(chartApi, type, options = {}){
+  const legacy = {
+    Candlestick: "addCandlestickSeries",
+    Line: "addLineSeries",
+    Histogram: "addHistogramSeries",
+  };
+
+  const legacyMethod = legacy[type];
+  if (legacyMethod && typeof chartApi[legacyMethod] === "function") {
+    return chartApi[legacyMethod](options);
+  }
+
+  if (typeof chartApi.addSeries === "function" && LightweightCharts?.[`${type}Series`]) {
+    return chartApi.addSeries(LightweightCharts[`${type}Series`], options);
+  }
+
+  throw new Error(`LightweightCharts tidak support series type: ${type}`);
+}
 
 function fmt(n){
   if (n === null || n === undefined || Number.isNaN(n)) return "-";
@@ -33,11 +59,11 @@ function setupChart(){
     timeScale: { borderColor: "rgba(255,255,255,0.10)" }
   });
 
-  candleSeries = chart.addCandlestickSeries();
-  ma20Series = chart.addLineSeries({ lineWidth: 2 });
-  ma50Series = chart.addLineSeries({ lineWidth: 2 });
+  candleSeries = addSeriesCompat(chart, "Candlestick");
+  ma20Series = addSeriesCompat(chart, "Line", { lineWidth: 2 });
+  ma50Series = addSeriesCompat(chart, "Line", { lineWidth: 2 });
 
-  volumeSeries = chart.addHistogramSeries({
+  volumeSeries = addSeriesCompat(chart, "Histogram", {
     priceFormat: { type: "volume" },
     priceScaleId: "",
     scaleMargins: { top: 0.8, bottom: 0 }
@@ -49,12 +75,38 @@ function setupChart(){
 }
 
 async function getJSON(path){
-  const res = await fetch(`${API_BASE}${path}`);
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(txt || `HTTP ${res.status}`);
+  let lastErr = null;
+
+  for (const base of API_BASES){
+    const cleanBase = base.replace(/\/$/, "");
+
+    try {
+      const res = await fetch(`${cleanBase}${path}`);
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || `HTTP ${res.status}`);
+      }
+
+      activeApiBase = cleanBase;
+      localStorage.setItem("API_BASE", cleanBase);
+      return res.json();
+    } catch (err){
+      lastErr = err;
+    }
   }
-  return res.json();
+
+  throw new Error(`Gagal ambil data API (${activeApiBase || "unknown"}). ${lastErr?.message || ""}`);
+}
+
+function showError(sectionId, err){
+  const el = $(sectionId);
+  if (!el) return;
+  el.innerHTML = `
+    <div class="muted">
+      Data belum masuk. Coba refresh 10-30 detik lagi (instance Render free bisa sleep), lalu cek backend URL.<br/>
+      <small>Error: ${String(err?.message || err)}</small>
+    </div>
+  `;
 }
 
 async function loadRegime(){
@@ -233,7 +285,26 @@ btnLoad.addEventListener("click", () => loadTicker(tickerInput.value));
 btnWatch.addEventListener("click", addWatch);
 btnRefreshRadar.addEventListener("click", loadRadar);
 
-setupChart();
+try {
+  setupChart();
+} catch (err){
+  console.error(err);
+  showError("chart", err);
+}
 loadWatchlist();
-loadRegime().then(() => loadTicker(tickerInput.value)).catch(console.error);
-loadRadar().catch(console.error);
+$("regime").innerHTML = `<div class="muted">Loading regime…</div>`;
+$("signalCard").innerHTML = `<div class="muted">Loading signal…</div>`;
+$("radar").innerHTML = `<div class="muted">Loading radar…</div>`;
+
+loadRegime()
+  .then(() => chart ? loadTicker(tickerInput.value) : null)
+  .catch((err) => {
+    console.error(err);
+    showError("regime", err);
+    showError("signalCard", err);
+  });
+
+loadRadar().catch((err) => {
+  console.error(err);
+  showError("radar", err);
+});
