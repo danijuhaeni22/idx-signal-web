@@ -45,21 +45,44 @@ def _to_jk_ticker(t: str) -> str:
 
 
 def _normalize_yf_columns(df: pd.DataFrame, yf_ticker: str) -> pd.DataFrame:
-    """Normalize yfinance output so single-ticker OHLCV columns are flat."""
-    if isinstance(df.columns, pd.MultiIndex):
-        flat = []
-        for col in df.columns:
-            parts = [str(x) for x in col if x and str(x) != ""]
-            flat.append("_".join(parts))
-        df.columns = flat
+    """Normalize yfinance output so OHLCV columns are stable across yfinance versions."""
+    ohlcv_names = {"open", "high", "low", "close", "adj close", "volume"}
 
-        ticker_suffix = f"_{yf_ticker}"
+    if isinstance(df.columns, pd.MultiIndex):
         renamed = {}
-        for c in df.columns:
-            if c.endswith(ticker_suffix):
-                renamed[c] = c[: -len(ticker_suffix)]
-        if renamed:
-            df = df.rename(columns=renamed)
+        for col in df.columns:
+            parts = [str(x) for x in col if x is not None and str(x) != ""]
+            joined = "_".join(parts)
+
+            lower_parts = [x.lower() for x in parts]
+            target = None
+            for base in ohlcv_names:
+                if base in lower_parts:
+                    target = base.title() if base != "adj close" else "Adj Close"
+                    break
+
+            renamed[col] = target or joined
+
+        df = df.rename(columns=renamed)
+
+    # Handle flattened columns from some providers, e.g. "BBRI.JK_Close" or "Close_BBRI.JK"
+    rename_flat = {}
+    for c in df.columns:
+        cl = str(c).lower()
+        if "open" in cl:
+            rename_flat[c] = "Open"
+        elif "high" in cl:
+            rename_flat[c] = "High"
+        elif "low" in cl:
+            rename_flat[c] = "Low"
+        elif "close" in cl and "adj" not in cl:
+            rename_flat[c] = "Close"
+        elif "adj" in cl and "close" in cl:
+            rename_flat[c] = "Adj Close"
+        elif "volume" in cl:
+            rename_flat[c] = "Volume"
+    if rename_flat:
+        df = df.rename(columns=rename_flat)
 
     return df
 
@@ -110,8 +133,16 @@ def fetch_ohlcv(ticker: str, days: int) -> pd.DataFrame:
         }
     )
 
-    df = df.dropna(subset=["date", "open", "high", "low", "close"])
-    df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None)
+    required_cols = ["date", "open", "high", "low", "close"]
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Format data provider berubah. Kolom hilang: {', '.join(missing)} untuk {yf_ticker}",
+        )
+
+    df = df.dropna(subset=required_cols)
+    df["date"] = pd.to_datetime(df["date"], utc=True).dt.tz_convert(None)
 
     if len(df) > days:
         df = df.iloc[-days:].copy()
