@@ -1,7 +1,14 @@
 // === CONFIG ===
-// Jalankan backend lokal: http://127.0.0.1:8000
-// Deploy backend Render: ganti ke URL render kamu, contoh: https://idx-signal-api.onrender.com
-const API_BASE = localStorage.getItem("API_BASE") || "https://idx-signal-web.onrender.com";
+// Override API: ?api=https://service-kamu.onrender.com
+const API_PARAM = new URLSearchParams(window.location.search).get("api");
+const API_BASES = [
+  API_PARAM,
+  localStorage.getItem("API_BASE"),
+  window.location.origin,
+  "https://idx-signal-web.onrender.com",
+].filter(Boolean);
+
+let activeApiBase = API_BASES[0];
 
 const $ = (id) => document.getElementById(id);
 
@@ -49,12 +56,38 @@ function setupChart(){
 }
 
 async function getJSON(path){
-  const res = await fetch(`${API_BASE}${path}`);
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(txt || `HTTP ${res.status}`);
+  let lastErr = null;
+
+  for (const base of API_BASES){
+    const cleanBase = base.replace(/\/$/, "");
+
+    try {
+      const res = await fetch(`${cleanBase}${path}`);
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || `HTTP ${res.status}`);
+      }
+
+      activeApiBase = cleanBase;
+      localStorage.setItem("API_BASE", cleanBase);
+      return res.json();
+    } catch (err){
+      lastErr = err;
+    }
   }
-  return res.json();
+
+  throw new Error(`Gagal ambil data API (${activeApiBase || "unknown"}). ${lastErr?.message || ""}`);
+}
+
+function showError(sectionId, err){
+  const el = $(sectionId);
+  if (!el) return;
+  el.innerHTML = `
+    <div class="muted">
+      Data belum masuk. Coba refresh 10-30 detik lagi (instance Render free bisa sleep), lalu cek backend URL.<br/>
+      <small>Error: ${String(err?.message || err)}</small>
+    </div>
+  `;
 }
 
 async function loadRegime(){
@@ -235,5 +268,19 @@ btnRefreshRadar.addEventListener("click", loadRadar);
 
 setupChart();
 loadWatchlist();
-loadRegime().then(() => loadTicker(tickerInput.value)).catch(console.error);
-loadRadar().catch(console.error);
+$("regime").innerHTML = `<div class="muted">Loading regime…</div>`;
+$("signalCard").innerHTML = `<div class="muted">Loading signal…</div>`;
+$("radar").innerHTML = `<div class="muted">Loading radar…</div>`;
+
+loadRegime()
+  .then(() => loadTicker(tickerInput.value))
+  .catch((err) => {
+    console.error(err);
+    showError("regime", err);
+    showError("signalCard", err);
+  });
+
+loadRadar().catch((err) => {
+  console.error(err);
+  showError("radar", err);
+});
