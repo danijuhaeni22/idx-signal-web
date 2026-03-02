@@ -244,51 +244,64 @@ def market_regime() -> Dict[str, Any]:
     - RISK_OFF: close < MA50
     - NO_TRADE_DAY: risk-off + volatilitas tinggi (ATR% > 2%) atau drop harian <= -2%
     """
-    df = fetch_ohlcv("^JKSE", days=260)
-    d = df.copy()
-    d["ma20"] = sma(d["close"], 20)
-    d["ma50"] = sma(d["close"], 50)
-    d["atr14"] = atr(d, 14)
+    try:
+        df = fetch_ohlcv("^JKSE", days=260)
+        d = df.copy()
+        d["ma20"] = sma(d["close"], 20)
+        d["ma50"] = sma(d["close"], 50)
+        d["atr14"] = atr(d, 14)
 
-    last = d.iloc[-1]
-    prev = d.iloc[-2] if len(d) >= 2 else last
+        last = d.iloc[-1]
+        prev = d.iloc[-2] if len(d) >= 2 else last
 
-    close = float(last["close"])
-    ma20 = float(last["ma20"]) if not math.isnan(float(last["ma20"])) else close
-    ma50 = float(last["ma50"]) if not math.isnan(float(last["ma50"])) else close
-    atr14v = float(last["atr14"]) if not math.isnan(float(last["atr14"])) else 0.0
+        close = float(last["close"])
+        ma20 = float(last["ma20"]) if not math.isnan(float(last["ma20"])) else close
+        ma50 = float(last["ma50"]) if not math.isnan(float(last["ma50"])) else close
+        atr14v = float(last["atr14"]) if not math.isnan(float(last["atr14"])) else 0.0
 
-    trend_on = (close > ma50) and (ma20 > ma50)
-    trend_off = (close < ma50)
+        trend_on = (close > ma50) and (ma20 > ma50)
+        trend_off = (close < ma50)
 
-    day_change = (close - float(prev["close"])) / float(prev["close"]) if float(prev["close"]) != 0 else 0
-    atr_pct = (atr14v / close) if close != 0 else 0
+        day_change = (close - float(prev["close"])) / float(prev["close"]) if float(prev["close"]) != 0 else 0
+        atr_pct = (atr14v / close) if close != 0 else 0
 
-    status = "NEUTRAL"
-    note = []
+        status = "NEUTRAL"
+        note = []
 
-    if trend_on:
-        status = "RISK_ON"
-        note = ["IHSG uptrend (Close>MA50 & MA20>MA50)"]
-    elif trend_off:
-        status = "RISK_OFF"
-        note = ["IHSG di bawah MA50 (risk-off)"]
+        if trend_on:
+            status = "RISK_ON"
+            note = ["IHSG uptrend (Close>MA50 & MA20>MA50)"]
+        elif trend_off:
+            status = "RISK_OFF"
+            note = ["IHSG di bawah MA50 (risk-off)"]
 
-    if trend_off and (atr_pct >= 0.02 or day_change <= -0.02):
-        status = "NO_TRADE_DAY"
-        note = ["IHSG risk-off + volatilitas/penurunan tajam → prefer no trade"]
+        if trend_off and (atr_pct >= 0.02 or day_change <= -0.02):
+            status = "NO_TRADE_DAY"
+            note = ["IHSG risk-off + volatilitas/penurunan tajam → prefer no trade"]
 
-    return {
-        "status": status,
-        "close": close,
-        "ma20": ma20,
-        "ma50": ma50,
-        "day_change_pct": round(day_change * 100, 2),
-        "atr14_pct": round(atr_pct * 100, 2),
-        "asof": str(pd.to_datetime(last["date"]).date()),
-        "note": note,
-        "ticker": "^JKSE",
-    }
+        return {
+            "status": status,
+            "close": close,
+            "ma20": ma20,
+            "ma50": ma50,
+            "day_change_pct": round(day_change * 100, 2),
+            "atr14_pct": round(atr_pct * 100, 2),
+            "asof": str(pd.to_datetime(last["date"]).date()),
+            "note": note,
+            "ticker": "^JKSE",
+        }
+    except Exception as e:
+        return {
+            "status": "UNKNOWN",
+            "close": None,
+            "ma20": None,
+            "ma50": None,
+            "day_change_pct": None,
+            "atr14_pct": None,
+            "asof": None,
+            "note": [f"Data IHSG belum tersedia: {str(e)}"],
+            "ticker": "^JKSE",
+        }
 
 
 def load_universe(name: str) -> List[str]:
@@ -311,6 +324,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/")
+def root():
+    return {
+        "ok": True,
+        "name": APP_NAME,
+        "message": "API aktif. Gunakan endpoint di bawah untuk ambil data.",
+        "endpoints": {
+            "health": "/api/health",
+            "market_regime": "/api/market-regime",
+            "ohlcv_example": "/api/ohlcv?ticker=BBRI&days=260",
+            "signal_example": "/api/signal?ticker=BBRI&days=260",
+            "screener_example": "/api/screener?universe=LQ45&days=260",
+        },
+    }
+
+
+@app.get("/api")
+def api_index():
+    return root()
 
 
 @app.get("/api/health")
