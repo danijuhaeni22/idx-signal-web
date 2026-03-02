@@ -44,6 +44,26 @@ def _to_jk_ticker(t: str) -> str:
     return f"{t}.JK"
 
 
+def _normalize_yf_columns(df: pd.DataFrame, yf_ticker: str) -> pd.DataFrame:
+    """Normalize yfinance output so single-ticker OHLCV columns are flat."""
+    if isinstance(df.columns, pd.MultiIndex):
+        flat = []
+        for col in df.columns:
+            parts = [str(x) for x in col if x and str(x) != ""]
+            flat.append("_".join(parts))
+        df.columns = flat
+
+        ticker_suffix = f"_{yf_ticker}"
+        renamed = {}
+        for c in df.columns:
+            if c.endswith(ticker_suffix):
+                renamed[c] = c[: -len(ticker_suffix)]
+        if renamed:
+            df = df.rename(columns=renamed)
+
+    return df
+
+
 def fetch_ohlcv(ticker: str, days: int) -> pd.DataFrame:
     """
     Fetch daily OHLCV via yfinance.
@@ -76,6 +96,7 @@ def fetch_ohlcv(ticker: str, days: int) -> pd.DataFrame:
     if df is None or df.empty:
         raise HTTPException(status_code=404, detail=f"Data kosong untuk ticker {yf_ticker}")
 
+    df = _normalize_yf_columns(df, yf_ticker)
     df = df.reset_index()
     df = df.rename(
         columns={
@@ -331,13 +352,13 @@ def root():
     return {
         "ok": True,
         "name": APP_NAME,
-        "message": "API aktif. Gunakan endpoint di bawah untuk ambil data.",
+        "message": "API aktif. Endpoint di bawah bisa langsung dipanggil untuk data.",
         "endpoints": {
             "health": "/api/health",
             "market_regime": "/api/market-regime",
-            "ohlcv_example": "/api/ohlcv?ticker=BBRI&days=260",
-            "signal_example": "/api/signal?ticker=BBRI&days=260",
-            "screener_example": "/api/screener?universe=LQ45&days=260",
+            "ohlcv": "/api/ohlcv?ticker=BBRI&days=260",
+            "signal": "/api/signal?ticker=BBRI&days=260",
+            "screener": "/api/screener?universe=LQ45&days=260",
         },
     }
 
