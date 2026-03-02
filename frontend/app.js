@@ -297,7 +297,7 @@ $("signalCard").innerHTML = `<div class="muted">Loading signal…</div>`;
 $("radar").innerHTML = `<div class="muted">Loading radar…</div>`;
 
 loadRegime()
-  .then(() => chart ? loadTicker(tickerInput.value) : null)
+  .then(() => loadTicker(tickerInput.value))
   .catch((err) => {
     console.error(err);
     showError("regime", err);
