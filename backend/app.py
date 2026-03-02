@@ -44,6 +44,49 @@ def _to_jk_ticker(t: str) -> str:
     return f"{t}.JK"
 
 
+def _normalize_yf_columns(df: pd.DataFrame, yf_ticker: str) -> pd.DataFrame:
+    """Normalize yfinance output so OHLCV columns are stable across yfinance versions."""
+    ohlcv_names = {"open", "high", "low", "close", "adj close", "volume"}
+
+    if isinstance(df.columns, pd.MultiIndex):
+        renamed = {}
+        for col in df.columns:
+            parts = [str(x) for x in col if x is not None and str(x) != ""]
+            joined = "_".join(parts)
+
+            lower_parts = [x.lower() for x in parts]
+            target = None
+            for base in ohlcv_names:
+                if base in lower_parts:
+                    target = base.title() if base != "adj close" else "Adj Close"
+                    break
+
+            renamed[col] = target or joined
+
+        df = df.rename(columns=renamed)
+
+    # Handle flattened columns from some providers, e.g. "BBRI.JK_Close" or "Close_BBRI.JK"
+    rename_flat = {}
+    for c in df.columns:
+        cl = str(c).lower()
+        if "open" in cl:
+            rename_flat[c] = "Open"
+        elif "high" in cl:
+            rename_flat[c] = "High"
+        elif "low" in cl:
+            rename_flat[c] = "Low"
+        elif "close" in cl and "adj" not in cl:
+            rename_flat[c] = "Close"
+        elif "adj" in cl and "close" in cl:
+            rename_flat[c] = "Adj Close"
+        elif "volume" in cl:
+            rename_flat[c] = "Volume"
+    if rename_flat:
+        df = df.rename(columns=rename_flat)
+
+    return df
+
+
 def fetch_ohlcv(ticker: str, days: int) -> pd.DataFrame:
     """
     Fetch daily OHLCV via yfinance.
@@ -76,6 +119,7 @@ def fetch_ohlcv(ticker: str, days: int) -> pd.DataFrame:
     if df is None or df.empty:
         raise HTTPException(status_code=404, detail=f"Data kosong untuk ticker {yf_ticker}")
 
+    df = _normalize_yf_columns(df, yf_ticker)
     df = df.reset_index()
     df = df.rename(
         columns={
@@ -89,8 +133,16 @@ def fetch_ohlcv(ticker: str, days: int) -> pd.DataFrame:
         }
     )
 
-    df = df.dropna(subset=["date", "open", "high", "low", "close"])
-    df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None)
+    required_cols = ["date", "open", "high", "low", "close"]
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Format data provider berubah. Kolom hilang: {', '.join(missing)} untuk {yf_ticker}",
+        )
+
+    df = df.dropna(subset=required_cols)
+    df["date"] = pd.to_datetime(df["date"], utc=True).dt.tz_convert(None)
 
     if len(df) > days:
         df = df.iloc[-days:].copy()
@@ -244,51 +296,64 @@ def market_regime() -> Dict[str, Any]:
     - RISK_OFF: close < MA50
     - NO_TRADE_DAY: risk-off + volatilitas tinggi (ATR% > 2%) atau drop harian <= -2%
     """
-    df = fetch_ohlcv("^JKSE", days=260)
-    d = df.copy()
-    d["ma20"] = sma(d["close"], 20)
-    d["ma50"] = sma(d["close"], 50)
-    d["atr14"] = atr(d, 14)
+    try:
+        df = fetch_ohlcv("^JKSE", days=260)
+        d = df.copy()
+        d["ma20"] = sma(d["close"], 20)
+        d["ma50"] = sma(d["close"], 50)
+        d["atr14"] = atr(d, 14)
 
-    last = d.iloc[-1]
-    prev = d.iloc[-2] if len(d) >= 2 else last
+        last = d.iloc[-1]
+        prev = d.iloc[-2] if len(d) >= 2 else last
 
-    close = float(last["close"])
-    ma20 = float(last["ma20"]) if not math.isnan(float(last["ma20"])) else close
-    ma50 = float(last["ma50"]) if not math.isnan(float(last["ma50"])) else close
-    atr14v = float(last["atr14"]) if not math.isnan(float(last["atr14"])) else 0.0
+        close = float(last["close"])
+        ma20 = float(last["ma20"]) if not math.isnan(float(last["ma20"])) else close
+        ma50 = float(last["ma50"]) if not math.isnan(float(last["ma50"])) else close
+        atr14v = float(last["atr14"]) if not math.isnan(float(last["atr14"])) else 0.0
 
-    trend_on = (close > ma50) and (ma20 > ma50)
-    trend_off = (close < ma50)
+        trend_on = (close > ma50) and (ma20 > ma50)
+        trend_off = (close < ma50)
 
-    day_change = (close - float(prev["close"])) / float(prev["close"]) if float(prev["close"]) != 0 else 0
-    atr_pct = (atr14v / close) if close != 0 else 0
+        day_change = (close - float(prev["close"])) / float(prev["close"]) if float(prev["close"]) != 0 else 0
+        atr_pct = (atr14v / close) if close != 0 else 0
 
-    status = "NEUTRAL"
-    note = []
+        status = "NEUTRAL"
+        note = []
 
-    if trend_on:
-        status = "RISK_ON"
-        note = ["IHSG uptrend (Close>MA50 & MA20>MA50)"]
-    elif trend_off:
-        status = "RISK_OFF"
-        note = ["IHSG di bawah MA50 (risk-off)"]
+        if trend_on:
+            status = "RISK_ON"
+            note = ["IHSG uptrend (Close>MA50 & MA20>MA50)"]
+        elif trend_off:
+            status = "RISK_OFF"
+            note = ["IHSG di bawah MA50 (risk-off)"]
 
-    if trend_off and (atr_pct >= 0.02 or day_change <= -0.02):
-        status = "NO_TRADE_DAY"
-        note = ["IHSG risk-off + volatilitas/penurunan tajam → prefer no trade"]
+        if trend_off and (atr_pct >= 0.02 or day_change <= -0.02):
+            status = "NO_TRADE_DAY"
+            note = ["IHSG risk-off + volatilitas/penurunan tajam → prefer no trade"]
 
-    return {
-        "status": status,
-        "close": close,
-        "ma20": ma20,
-        "ma50": ma50,
-        "day_change_pct": round(day_change * 100, 2),
-        "atr14_pct": round(atr_pct * 100, 2),
-        "asof": str(pd.to_datetime(last["date"]).date()),
-        "note": note,
-        "ticker": "^JKSE",
-    }
+        return {
+            "status": status,
+            "close": close,
+            "ma20": ma20,
+            "ma50": ma50,
+            "day_change_pct": round(day_change * 100, 2),
+            "atr14_pct": round(atr_pct * 100, 2),
+            "asof": str(pd.to_datetime(last["date"]).date()),
+            "note": note,
+            "ticker": "^JKSE",
+        }
+    except Exception as e:
+        return {
+            "status": "UNKNOWN",
+            "close": None,
+            "ma20": None,
+            "ma50": None,
+            "day_change_pct": None,
+            "atr14_pct": None,
+            "asof": None,
+            "note": [f"Data IHSG belum tersedia: {str(e)}"],
+            "ticker": "^JKSE",
+        }
 
 
 def load_universe(name: str) -> List[str]:
@@ -311,6 +376,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/")
+def root():
+    return {
+        "ok": True,
+        "name": APP_NAME,
+        "message": "API aktif. Endpoint di bawah bisa langsung dipanggil untuk data.",
+        "endpoints": {
+            "health": "/api/health",
+            "market_regime": "/api/market-regime",
+            "ohlcv": "/api/ohlcv?ticker=BBRI&days=260",
+            "signal": "/api/signal?ticker=BBRI&days=260",
+            "screener": "/api/screener?universe=LQ45&days=260",
+        },
+    }
+
+
+@app.get("/api")
+def api_index():
+    return root()
 
 
 @app.get("/api/health")
