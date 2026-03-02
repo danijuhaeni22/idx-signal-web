@@ -19,6 +19,25 @@ const btnRefreshRadar = $("btnRefreshRadar");
 
 let chart, candleSeries, ma20Series, ma50Series, volumeSeries;
 
+function addSeriesCompat(chartApi, type, options = {}){
+  const legacy = {
+    Candlestick: "addCandlestickSeries",
+    Line: "addLineSeries",
+    Histogram: "addHistogramSeries",
+  };
+
+  const legacyMethod = legacy[type];
+  if (legacyMethod && typeof chartApi[legacyMethod] === "function") {
+    return chartApi[legacyMethod](options);
+  }
+
+  if (typeof chartApi.addSeries === "function" && LightweightCharts?.[`${type}Series`]) {
+    return chartApi.addSeries(LightweightCharts[`${type}Series`], options);
+  }
+
+  throw new Error(`LightweightCharts tidak support series type: ${type}`);
+}
+
 function fmt(n){
   if (n === null || n === undefined || Number.isNaN(n)) return "-";
   return Number(n).toLocaleString("id-ID", { maximumFractionDigits: 2 });
@@ -40,11 +59,11 @@ function setupChart(){
     timeScale: { borderColor: "rgba(255,255,255,0.10)" }
   });
 
-  candleSeries = chart.addCandlestickSeries();
-  ma20Series = chart.addLineSeries({ lineWidth: 2 });
-  ma50Series = chart.addLineSeries({ lineWidth: 2 });
+  candleSeries = addSeriesCompat(chart, "Candlestick");
+  ma20Series = addSeriesCompat(chart, "Line", { lineWidth: 2 });
+  ma50Series = addSeriesCompat(chart, "Line", { lineWidth: 2 });
 
-  volumeSeries = chart.addHistogramSeries({
+  volumeSeries = addSeriesCompat(chart, "Histogram", {
     priceFormat: { type: "volume" },
     priceScaleId: "",
     scaleMargins: { top: 0.8, bottom: 0 }
@@ -266,7 +285,12 @@ btnLoad.addEventListener("click", () => loadTicker(tickerInput.value));
 btnWatch.addEventListener("click", addWatch);
 btnRefreshRadar.addEventListener("click", loadRadar);
 
-setupChart();
+try {
+  setupChart();
+} catch (err){
+  console.error(err);
+  showError("chart", err);
+}
 loadWatchlist();
 $("regime").innerHTML = `<div class="muted">Loading regime…</div>`;
 $("signalCard").innerHTML = `<div class="muted">Loading signal…</div>`;
