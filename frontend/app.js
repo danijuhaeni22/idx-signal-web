@@ -141,7 +141,13 @@ async function loadTicker(ticker){
   const t = ticker.trim().toUpperCase();
   if (!t) return;
 
-  const regime = await loadRegime();
+  let regime = "UNKNOWN";
+  try {
+    regime = await loadRegime();
+  } catch (err) {
+    console.warn("loadRegime failed, lanjut load ticker:", err);
+    showError("regime", err);
+  }
 
   const o = await getJSON(`/api/ohlcv?ticker=${encodeURIComponent(t)}&days=260`);
   const bars = o.bars;
@@ -296,13 +302,12 @@ $("regime").innerHTML = `<div class="muted">Loading regime…</div>`;
 $("signalCard").innerHTML = `<div class="muted">Loading signal…</div>`;
 $("radar").innerHTML = `<div class="muted">Loading radar…</div>`;
 
-loadRegime()
-  .then(() => chart ? loadTicker(tickerInput.value) : null)
-  .catch((err) => {
+if (chart) {
+  loadTicker(tickerInput.value).catch((err) => {
     console.error(err);
-    showError("regime", err);
     showError("signalCard", err);
   });
+}
 
 loadRadar().catch((err) => {
   console.error(err);
